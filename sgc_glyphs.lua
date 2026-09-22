@@ -37,11 +37,14 @@ local function draw(target)
     target.write("NUMERIC SYMBOLS")
     target.setCursorPos(1, 7)
     target.write("Use these IDs with engageSymbol(symbol).")
+    local max_symbol = gate_type == "sgjourney:universe_stargate" and 35 or 38
+    target.setCursorPos(1, 7)
+    target.write("NUMERIC RANGE: 0-" .. tostring(max_symbol) .. " (0 = PoO)")
     local columns = 4
     local rows = math.max(1, h - 10)
     local per_page = columns * rows
     local page = 1
-    local pages = math.max(1, math.ceil(39 / per_page))
+    local pages = math.max(1, math.ceil((max_symbol + 1) / per_page))
     local running = true
     while running do
         target.setCursorPos(1, 8)
@@ -50,7 +53,7 @@ local function draw(target)
         local first = (page - 1) * per_page
         for offset = 0, per_page - 1 do
             local id = first + offset
-            if id > 38 then break end
+            if id > max_symbol then break end
             local col = math.floor(offset / rows)
             local row = offset % rows
             target.setCursorPos(2 + col * math.floor(w / columns), 9 + row)
@@ -72,5 +75,5 @@ else
     print("Symbol resource: " .. tostring(symbols))
     print("Gate: " .. tostring(gate_type))
     print("Point of Origin: " .. tostring(point))
-    print("Supported numeric symbol IDs: 0-38")
+    print("Supported numeric symbol IDs: 0-" .. tostring(gate_type == "sgjourney:universe_stargate" and 35 or 38) .. " (0 = Point of Origin)")
 end
