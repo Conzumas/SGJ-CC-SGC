@@ -14,7 +14,7 @@ local function find_interface()
 end
 
 local function get_symbols(gate)
-    local ok, symbols = pcall(gate.getSymbols, gate)
+    local ok, symbols = pcall(gate.getSymbols)
     if not ok then return nil end
     return symbols
 end
