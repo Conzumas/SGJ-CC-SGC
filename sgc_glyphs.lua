@@ -37,7 +37,13 @@ local function draw(target)
     target.write("NUMERIC SYMBOLS")
     target.setCursorPos(1, 7)
     target.write("Use these IDs with engageSymbol(symbol).")
-    local max_symbol = gate_type == "sgjourney:universe_stargate" and 35 or 38
+    local max_symbol = 38
+    if gate_type == "sgjourney:universe_stargate" then
+        max_symbol = 35
+    elseif gate_type == "sgjourney:tollan_stargate"
+        or gate_type == "sgjourney:pegasus_stargate" then
+        max_symbol = 47
+    end
     target.setCursorPos(1, 7)
     target.write("NUMERIC RANGE: 0-" .. tostring(max_symbol) .. " (0 = PoO)")
     local columns = 4
