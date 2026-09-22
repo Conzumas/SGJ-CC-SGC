@@ -134,6 +134,8 @@ Advanced Crystal exposes network/filter controls including:
 - `removeFromBlacklist(address)`
 - `addToWhitelist(address)`
 - `removeFromWhitelist(address)`
+- `clearBlacklist()`
+- `clearWhitelist()`
 
 Filter types are 0 for none, 1 for whitelist, and -1 for blacklist.
 
