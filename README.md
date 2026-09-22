@@ -27,7 +27,7 @@ The peripheral is discovered automatically. Crystal Interfaces expose the dialin
 
 See `SGJ_API.md` for the API verified against the Stargate Journey source.
 
-Important: Stargate Journey does **not** expose the old JSG GDO/iris-code API used by the original project. This version therefore does not pretend that GDO authentication exists. Iris security is implemented with the APIs Stargate Journey actually exposes.
+Important: Stargate Journey's iris controls are exposed directly by the Stargate interface. GDO/IDC authentication is supported by SGJourney through the separate `transceiver` peripheral; see `SGJ_API.md` for the verified interface and transceiver APIs.
 
 ## Source
 
