@@ -12,7 +12,7 @@ Stargate Journey provides three interface peripheral types:
 - `crystal_interface`
 - `advanced_crystal_interface`
 
-A computer must be directly adjacent to the interface or connected with an activated wired modem. Wireless modems are not supported for connecting the interface. citeturn7view0
+A computer must be directly adjacent to the interface or connected with an activated wired modem. Wireless modems are not supported for connecting the interface.
 
 ## Common interface methods
 
@@ -24,7 +24,7 @@ Verified:
 - `getEnergyTarget()`
 - `setEnergyTarget(energyTarget)`
 
-The interface energy methods report Forge Energy (FE) stored in the interface. `getStargateEnergy()` is separate and reports Stargate energy. citeturn7view0
+The interface energy methods report Forge Energy (FE) stored in the interface. `getStargateEnergy()` is separate and reports Stargate energy.
 
 ## Stargate methods
 
@@ -52,7 +52,7 @@ Verified:
 - `remapSymbol(originalSymbol, newSymbol)`
 - `setChevronConfiguration(configuration)`
 
-`getSymbols()` returns a **string resource location**, such as `sgjourney:terra`; it does not return an array of numeric glyphs. `engageSymbol()` accepts numeric symbol IDs. citeturn5view1turn6view1
+`getSymbols()` returns a **string resource location**, such as `sgjourney:terra`; it does not return an array of numeric glyphs. `engageSymbol()` accepts numeric symbol IDs.
 
 ### Dialing behavior
 
@@ -64,7 +64,7 @@ and then waits for `getDialedAddress()` to contain the complete address before c
 
 `interface.engageStargate()`
 
-The Point of Origin must be included in the address. The example explicitly uses `canEngageStargate = false` when encoding so the final engagement is controlled separately. SGJ-CC-SGC follows that model. citeturn5view0turn6view1
+The Point of Origin must be included in the address. The example explicitly uses `canEngageStargate = false` when encoding so the final engagement is controlled separately. SGJ-CC-SGC follows that model.
 
 ## Address methods
 
@@ -73,7 +73,7 @@ The Point of Origin must be included in the address. The example explicitly uses
 - `getLocalAddress()` — Advanced Crystal; returns the local 9-chevron address.
 - `addressToString(address)` — formats an address as `-26-6-14-31-11-29-`.
 
-An empty/non-applicable address is represented by an empty table. citeturn6view1turn5view2turn7view0
+An empty/non-applicable address is represented by an empty table.
 
 ## Iris methods
 
@@ -88,7 +88,7 @@ Verified:
 - `getIrisDurability()`
 - `getIrisMaxDurability()`
 
-`getIris()` returns the installed iris resource identifier or `nil`. Iris progress percentage is 0 when fully open/not installed and 100 when fully closed. The iris methods are not available for Tollan because Tollan cannot have an iris. citeturn6view0
+`getIris()` returns the installed iris resource identifier or `nil`. Iris progress percentage is 0 when fully open/not installed and 100 when fully closed. The iris methods are not available for Tollan because Tollan cannot have an iris.
 
 ## Rotation
 
@@ -115,7 +115,7 @@ Pegasus additionally has:
 - `overrideSymbols(symbols)`
 - `overridePointOfOrigin(pointOfOrigin)`
 
-These are documented by the official Stargate Interface API. citeturn4view0
+These are documented by the official Stargate Interface API.
 
 ## Networks and filtering
 
@@ -135,7 +135,7 @@ Advanced Crystal exposes network/filter controls including:
 - `addToWhitelist(address)`
 - `removeFromWhitelist(address)`
 
-Filter types are 0 for none, 1 for whitelist, and -1 for blacklist. citeturn5view2
+Filter types are 0 for none, 1 for whitelist, and -1 for blacklist.
 
 ## Events
 
@@ -151,7 +151,7 @@ Verified Stargate interface events:
 - `stargate_reconstructing_entity`
 - `stargate_message_received`
 
-The first argument after the event name is the peripheral name. For an Advanced Crystal Interface, incoming-wormhole events include the connected address; outgoing-wormhole events include the dialed address; chevron events include the engaged count, chevron identifier, incoming/outgoing flag, and symbol where supported. citeturn2view1
+The first argument after the event name is the peripheral name. For an Advanced Crystal Interface, incoming-wormhole events include the connected address; outgoing-wormhole events include the dialed address; chevron events include the engaged count, chevron identifier, incoming/outgoing flag, and symbol where supported.
 
 ## Transceiver / GDO / IDC
 
@@ -166,7 +166,7 @@ Verified transceiver methods:
 - `getCurrentCode()`
 - `getFrequency()`
 
-The transceiver raises `transceiver_transmission_received`, containing the frequency, received IDC, and whether the received code matches the transceiver's configured IDC. This is the correct SGJ mechanism for IDC/GDO authentication. citeturn3view0
+The transceiver raises `transceiver_transmission_received`, containing the frequency, received IDC, and whether the received code matches the transceiver's configured IDC. This is the correct SGJ mechanism for IDC/GDO authentication.
 
 ## JSG compatibility warning
 
