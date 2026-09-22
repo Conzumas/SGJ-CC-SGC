@@ -6,6 +6,7 @@
 - Stargate Journey 0.6.x
 - CC:Tweaked
 - Stargate Journey interface peripheral
+- Optional Stargate Journey Transceiver peripheral for GDO/IDC authentication
 
 ## Core goals
 
@@ -22,11 +23,12 @@ Build an SGC-style ComputerCraft control program that operates a Stargate Journe
 
 ### Dialing
 
-- Dial saved addresses through Stargate Journey's `engageSymbol` API.
+- Dial saved addresses through Stargate Journey engageSymbol.
 - Show chevron progress.
 - Stop cleanly on API errors.
-- Support resuming a partially engaged address when the gate reports engaged chevrons.
+- Resume a partially engaged address only when the existing encoded address matches the selected target.
 - Support Milky Way, Classic, Pegasus, Universe, and other interfaces where the installed interface exposes the required method.
+- Do not append to an unrelated active connection.
 
 ### Gate monitoring
 
@@ -36,47 +38,66 @@ Display:
 - Connected/disconnected state.
 - Outgoing/incoming state.
 - Wormhole state.
-- Stored energy.
-- Energy target/capacity from the interface.
+- Stored Stargate energy.
+- Interface FE energy, target, and capacity.
 - Engaged chevrons.
 - Open time.
 - Local address where the interface exposes it.
 - Connected/dialed address where the interface exposes it.
+- Iris telemetry where supported.
+- Transceiver status/frequency where a transceiver is installed.
 
 ### Iris
 
 Use only verified Stargate Journey iris methods:
 
-- `getIris`
-- `closeIris`
-- `openIris`
-- `stopIris`
-- `getIrisProgress`
-- `getIrisProgressPercentage`
-- `getIrisDurability`
-- `getIrisMaxDurability`
+- getIris
+- closeIris
+- openIris
+- stopIris
+- getIrisProgress
+- getIrisProgressPercentage
+- getIrisDurability
+- getIrisMaxDurability
 
-The default security policy is fail-closed when an incoming connection is detected.
+The default security policy is fail-closed when an incoming connection is detected. If no iris is installed, the program must report that the incoming connection cannot be secured rather than claiming the gate is protected.
+
+### GDO / IDC / Transceiver
+
+Use Stargate Journey's standalone transceiver peripheral for IDC/GDO handling:
+
+- setFrequency
+- setCurrentCode
+- sendTransmission
+- checkConnectedShielding
+- getCurrentCode
+- getFrequency
+- transceiver_transmission_received
+
+Incoming IDC authentication must require an active incoming Stargate connection plus the configured frequency and IDC. The received IDC itself must never be written to the persistent event log.
 
 ### Incoming activation
 
 Handle:
 
-- `stargate_incoming_connection`
-- `stargate_incoming_wormhole`
-- `stargate_outgoing_wormhole`
-- `stargate_disconnected`
-- `stargate_chevron_engaged`
-- `stargate_rotation_started`
-- `stargate_rotation_stopped`
+- stargate_incoming_connection
+- stargate_incoming_wormhole
+- stargate_outgoing_wormhole
+- stargate_disconnected
+- stargate_reset
+- stargate_chevron_engaged
+- stargate_deconstructing_entity
+- stargate_reconstructing_entity
+- stargate_message_received
+- transceiver_transmission_received
 
-Incoming activation should never block the main UI.
+Incoming activation/security processing must never block the main UI.
 
 ### Event log
 
 Persist useful operational events.
 
-Do not log secrets. Stargate Journey's current CC API does not expose the old JSG iris/GDO-code mechanism, so no plaintext GDO code is collected.
+Do not log IDC secrets or received IDC values.
 
 ### Reliability
 
