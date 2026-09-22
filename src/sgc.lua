@@ -22,6 +22,14 @@ local CONFIG = {
     -- Leave idc_code empty to keep incoming iris authorization disabled.
     transceiver_frequency = 0,
     idc_code = "",
+
+    audio = {
+        incoming_drive = "drive_3",
+        outgoing_drive = "drive_2",
+        incoming_repeat_seconds = 3.0,
+        outgoing_repeat_seconds = 3.0,
+        poll_interval = 0.05,
+    },
 }
 
 local state = {
@@ -60,6 +68,11 @@ local state = {
     transceiver_frequency = nil,
     transceiver_code = nil,
     remote_iris_pct = nil,
+
+    audio_alarm = nil,
+    audio_alarm_since = nil,
+    audio_last_drive = nil,
+    audio_error_reported = {},
 
     incoming = false,
     incoming_address = nil,
@@ -426,6 +439,95 @@ local function open_iris(reason)
     return false
 end
 
+local function audio_drive_for_alarm(kind)
+    if kind == "incoming" then return CONFIG.audio.incoming_drive end
+    if kind == "outgoing" then return CONFIG.audio.outgoing_drive end
+    return nil
+end
+
+local function audio_repeat_seconds(kind)
+    if kind == "incoming" then return CONFIG.audio.incoming_repeat_seconds end
+    if kind == "outgoing" then return CONFIG.audio.outgoing_repeat_seconds end
+    return nil
+end
+
+local function stop_alarm_audio()
+    for _, drive in ipairs({ CONFIG.audio.incoming_drive, CONFIG.audio.outgoing_drive }) do
+        pcall(disk.stopAudio, drive)
+    end
+    state.audio_alarm = nil
+    state.audio_alarm_since = nil
+    state.audio_last_drive = nil
+end
+
+local function set_alarm_audio(kind, reason)
+    if kind ~= "incoming" and kind ~= "outgoing" then
+        stop_alarm_audio()
+        return
+    end
+
+    if kind == "outgoing" and state.audio_alarm == "incoming" then
+        return
+    end
+
+    local drive = audio_drive_for_alarm(kind)
+    if not drive then return end
+
+    for _, other in ipairs({ CONFIG.audio.incoming_drive, CONFIG.audio.outgoing_drive }) do
+        if other ~= drive then pcall(disk.stopAudio, other) end
+    end
+
+    state.audio_alarm = kind
+    state.audio_alarm_since = nil
+    state.audio_last_drive = drive
+    log_event("AUDIO ALARM: " .. kind:upper() .. " / " .. tostring(reason or "event"))
+end
+
+local function audio_play_once(kind)
+    local drive = audio_drive_for_alarm(kind)
+    if not drive then return false end
+
+    local ok_has, has_audio = pcall(disk.hasAudio, drive)
+    if not ok_has or has_audio ~= true then
+        if not state.audio_error_reported[drive] then
+            state.audio_error_reported[drive] = true
+            log_event("AUDIO " .. kind:upper() .. " FAILED: " .. tostring(drive) .. " has no music disc")
+        end
+        return false
+    end
+
+    local ok = pcall(disk.playAudio, drive)
+    if not ok then
+        if not state.audio_error_reported[drive] then
+            state.audio_error_reported[drive] = true
+            log_event("AUDIO " .. kind:upper() .. " FAILED: unable to play " .. tostring(drive))
+        end
+        return false
+    end
+
+    state.audio_error_reported[drive] = nil
+    state.audio_alarm_since = os.epoch("utc")
+    return true
+end
+
+local function audio_loop()
+    while state.running do
+        local kind = state.audio_alarm
+        if kind then
+            local repeat_seconds = audio_repeat_seconds(kind)
+            if repeat_seconds then
+                if not state.audio_alarm_since
+                    or (os.epoch("utc") - state.audio_alarm_since) >= repeat_seconds * 1000 then
+                    audio_play_once(kind)
+                end
+            end
+        else
+            state.audio_alarm_since = nil
+        end
+        sleep(CONFIG.audio.poll_interval)
+    end
+end
+
 local function dial_address(address)
     if type(address) ~= "table" or #address == 0 then
         log_event("DIAL REJECTED: empty address")
@@ -537,6 +639,37 @@ local function dial_address(address)
     return true
 end
 
+local function validate_address(symbols)
+    if type(symbols) ~= "table" or #symbols < 7 or #symbols > 9 then
+        return false, "Address must contain 7-9 symbols including the Point of Origin"
+    end
+
+    local seen = {}
+    for i, symbol in ipairs(symbols) do
+        local n = tonumber(symbol)
+        if n == nil or n < 0 or n > 38 or n % 1 ~= 0 then
+            return false, "Invalid symbol at position " .. tostring(i) .. ": " .. tostring(symbol)
+        end
+        if n == 0 and i ~= #symbols then
+            return false, "Point of Origin (0) must be the final symbol"
+        end
+        if n ~= 0 then
+            if seen[n] then
+                return false, "Duplicate symbol: " .. tostring(n)
+            end
+            seen[n] = true
+        end
+    end
+
+    if tonumber(symbols[#symbols]) ~= 0 then
+        return false, "Address must end with Point of Origin (0)"
+    end
+
+    local normalized = {}
+    for i, symbol in ipairs(symbols) do normalized[i] = tonumber(symbol) end
+    return true, normalized
+end
+
 local function add_address()
     term.clear()
     term.setCursorPos(2, 2)
@@ -561,8 +694,24 @@ local function add_address()
         table.insert(symbols, n)
     end
 
-    if #symbols == 0 then return end
-    table.insert(state.addresses, { name = name, symbols = symbols })
+    local valid, normalized = validate_address(symbols)
+    if not valid then
+        term.setCursorPos(2, 7)
+        term.write(normalized)
+        sleep(2)
+        return
+    end
+
+    for _, entry in ipairs(state.addresses) do
+        if same_address(entry.symbols, normalized) then
+            term.setCursorPos(2, 7)
+            term.write("Duplicate address")
+            sleep(2)
+            return
+        end
+    end
+
+    table.insert(state.addresses, { name = name, symbols = normalized })
     state.selected = #state.addresses
     save_data()
     log_event("ADDRESS ADDED: " .. name)
@@ -595,7 +744,14 @@ local function edit_address(index)
             end
             table.insert(symbols, n)
         end
-        entry.symbols = symbols
+        local valid, normalized = validate_address(symbols)
+        if not valid then
+            term.setCursorPos(2, 7)
+            term.write(normalized)
+            sleep(2)
+            return
+        end
+        entry.symbols = normalized
     end
 
     save_data()
@@ -848,6 +1004,7 @@ local function handle_event(event, ...)
         state.incoming = true
         state.iris_authorized = false
         state.alert = "INCOMING STARGATE CONNECTION"
+        set_alarm_audio("incoming", "incoming connection")
         log_event("INCOMING CONNECTION DETECTED")
 
         if CONFIG.fail_closed then
@@ -857,6 +1014,7 @@ local function handle_event(event, ...)
     elseif event == "stargate_incoming_wormhole" then
         state.incoming = true
         state.alert = "INCOMING WORMHOLE"
+        set_alarm_audio("incoming", "incoming wormhole")
         if #args > 0 and type(args[1]) == "table" and #args[1] > 0 then
             state.incoming_address = copy_address(args[1])
         end
@@ -868,6 +1026,7 @@ local function handle_event(event, ...)
 
     elseif event == "stargate_outgoing_wormhole" then
         state.incoming = false
+        set_alarm_audio("outgoing", "outgoing wormhole")
         if #args > 0 and type(args[1]) == "table" then
             state.dialed_address = copy_address(args[1])
         end
@@ -895,6 +1054,7 @@ local function handle_event(event, ...)
         state.iris_authorized = false
         state.alert = nil
         state.incoming_address = nil
+        stop_alarm_audio()
         log_event("STARGATE DISCONNECTED: feedback=" .. tostring(args[1])
             .. " message=" .. tostring(args[2] or ""))
 
@@ -907,6 +1067,7 @@ local function handle_event(event, ...)
         state.iris_authorized = false
         state.alert = nil
         state.incoming_address = nil
+        stop_alarm_audio()
         log_event("STARGATE RESET: feedback=" .. tostring(args[1])
             .. " message=" .. tostring(args[2] or ""))
 
@@ -1039,9 +1200,10 @@ local function startup()
 end
 
 startup()
-parallel.waitForAny(security_loop, refresh_loop, ui_loop)
+parallel.waitForAny(security_loop, refresh_loop, audio_loop, ui_loop)
 
 state.running = false
+stop_alarm_audio()
 save_data()
 term.clear()
 term.setCursorPos(1, 1)
