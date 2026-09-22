@@ -33,6 +33,7 @@ local state = {
     dialing_out = false,
     wormhole = false,
     energy = 0,
+    interface_energy = 0,
     energy_capacity = 0,
     energy_target = 0,
     chevrons = 0,
@@ -236,7 +237,7 @@ local function refresh_gate()
     end
 
     ok, value = call_method("getEnergy")
-    if ok then state.energy_capacity = tonumber(value) or state.energy_capacity end
+    if ok then state.interface_energy = tonumber(value) or state.interface_energy end
 
     ok, value = call_method("getEnergyCapacity")
     if ok then state.energy_capacity = tonumber(value) or state.energy_capacity end
@@ -351,7 +352,9 @@ local function dial_address(address)
     log_event("DIAL START: " .. address_string(address))
 
     refresh_gate()
-    local start = math.max(1, state.chevrons + 1)
+    local already = 0
+    if type(state.dialed_address) == "table" then already = #state.dialed_address end
+    local start = math.max(1, already + 1)
 
     for i = start, #address do
         if not state.running then break end
@@ -363,7 +366,7 @@ local function dial_address(address)
             return false
         end
 
-        local ok, feedback, message = call_method("engageSymbol", symbol, false, true)
+        local ok, feedback, message = call_method("engageSymbol", symbol, false, false)
         if not ok then
             state.dialing = false
             log_event("DIAL FAILED at chevron " .. i .. ": " .. tostring(feedback))
@@ -373,26 +376,47 @@ local function dial_address(address)
         state.dial_last = symbol
         refresh_gate()
 
-        -- Wait for the requested symbol/chevron operation to advance.
-        local deadline = os.clock() + 15
+        -- SGJ does not require a fixed delay: wait until the encoded address
+        -- contains this symbol. This also works across rotating gate types.
+        local deadline = os.clock() + 20
         while os.clock() < deadline do
-            if state.chevrons >= i or state.wormhole or state.connected then
-                break
-            end
-            sleep(0.05)
             refresh_gate()
+            local count = type(state.dialed_address) == "table" and #state.dialed_address or 0
+            if count >= i then break end
+            sleep(0.05)
         end
 
-        if state.chevrons < i and not state.wormhole and not state.connected then
+        local count = type(state.dialed_address) == "table" and #state.dialed_address or 0
+        if count < i then
             log_event("DIAL TIMEOUT at chevron " .. i)
             state.dialing = false
             return false
         end
     end
 
+    refresh_gate()
+    local encoded = type(state.dialed_address) == "table" and #state.dialed_address or 0
+    if encoded < #address then
+        state.dialing = false
+        log_event("DIAL FAILED: address encoding incomplete")
+        return false
+    end
+
+    local ok, feedback, message = call_method("engageStargate")
+    if not ok then
+        state.dialing = false
+        log_event("DIAL ENGAGE FAILED: " .. tostring(feedback))
+        return false
+    end
+    if type(feedback) == "number" and feedback < 0 then
+        state.dialing = false
+        log_event("DIAL ENGAGE REJECTED: " .. tostring(message or feedback))
+        return false
+    end
+
     state.dialing = false
     refresh_gate()
-    log_event("DIAL COMPLETE: " .. address_string(address))
+    log_event("DIAL ENGAGED: " .. address_string(address))
     return true
 end
 
@@ -517,14 +541,16 @@ local function draw_main()
     term.setCursorPos(2, 7)
     term.write("STATUS:    " .. status_text())
     term.setCursorPos(2, 8)
-    term.write("ENERGY:    " .. energy_text())
+    term.write("GATE PWR:  " .. energy_text())
     term.setCursorPos(2, 9)
-    term.write("TARGET:    " .. tostring(state.energy_target))
+    term.write("IFACE FE:  " .. tostring(state.interface_energy))
     term.setCursorPos(2, 10)
-    term.write("CHEVRONS:  " .. tostring(state.chevrons))
+    term.write("TARGET:    " .. tostring(state.energy_target))
     term.setCursorPos(2, 11)
-    term.write("IRIS:      " .. tostring(state.iris or "UNKNOWN"))
+    term.write("CHEVRONS:  " .. tostring(state.chevrons))
     term.setCursorPos(2, 12)
+    term.write("IRIS:      " .. tostring(state.iris or "NONE"))
+    term.setCursorPos(2, 13)
     term.write("LOCAL:     " .. address_string(state.local_address))
 
     if state.dialed_address then
@@ -532,7 +558,7 @@ local function draw_main()
         term.write("DIALED:    " .. address_string(state.dialed_address))
     end
 
-    local row = 15
+    local row = 16
     if state.incoming then
         term.setCursorPos(2, row)
         term.write("!!! INCOMING CONNECTION !!!")
@@ -700,7 +726,19 @@ local function handle_event(event, ...)
 
     elseif event == "stargate_outgoing_wormhole" then
         state.incoming = false
+        if #args > 0 and type(args[1]) == "table" then
+            state.dialed_address = copy_address(args[1])
+        end
         log_event("OUTGOING WORMHOLE")
+
+    elseif event == "stargate_reset" then
+        state.incoming = false
+        state.alert = nil
+        state.incoming_address = nil
+        log_event("STARGATE RESET")
+
+    elseif event == "stargate_message_received" then
+        log_event("STARGATE MESSAGE RECEIVED: " .. tostring(args[1] or ""))
 
     elseif event == "stargate_chevron_engaged" then
         log_event("CHEVRON ENGAGED: " .. table.concat(args, ", "))
@@ -733,7 +771,9 @@ local function security_loop()
             or event == "stargate_disconnected"
             or event == "stargate_chevron_engaged"
             or event == "stargate_rotation_started"
-            or event == "stargate_rotation_stopped" then
+            or event == "stargate_rotation_stopped"
+            or event == "stargate_reset"
+            or event == "stargate_message_received" then
             handle_event(event, a, b, c, d, e)
         end
     end
@@ -745,8 +785,8 @@ local function refresh_loop()
         refresh_gate()
 
         if state.incoming and CONFIG.fail_closed then
-            local iris = tostring(state.iris or ""):lower()
-            if iris ~= "closed" and iris ~= "closing" then
+            local pct = tonumber(state.iris_progress_pct)
+            if state.iris and (not pct or pct < 100) then
                 force_close_iris("incoming connection safety loop")
             end
         end
