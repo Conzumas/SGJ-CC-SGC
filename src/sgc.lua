@@ -149,8 +149,17 @@ end
 local function save_table(path, value)
     local h = fs.open(path, "w")
     if not h then return false end
-    h.write(textutils.serialize(value))
-    h.close()
+
+    local ok = pcall(function()
+        h.write(textutils.serialize(value))
+        h.close()
+    end)
+
+    if not ok then
+        pcall(h.close)
+        return false
+    end
+
     return true
 end
 
@@ -193,9 +202,10 @@ local function load_data()
 end
 
 local function save_data()
-    local data_ok = save_table(CONFIG.data_file, { addresses = state.addresses })
-    local events_ok = save_table(CONFIG.event_file, state.events)
-    return data_ok and events_ok
+    -- Event persistence is owned by log_event(), which writes immediately.
+    -- Keeping it out of this function avoids a redundant event-file write
+    -- during every address mutation.
+    return save_table(CONFIG.data_file, { addresses = state.addresses })
 end
 
 local function discover_peripheral()
