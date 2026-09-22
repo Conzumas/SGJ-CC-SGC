@@ -1,87 +1,83 @@
 # Verified Stargate Journey ComputerCraft API
 
-Target: Stargate Journey source for the current 1.21.1 NeoForge line.
+Target: Stargate Journey ComputerCraft integration for the 1.21.1 NeoForge line.
 
-## Peripheral
+Official documentation: https://povstalec.github.io/StargateJourney/computercraft/
 
-Stargate Journey exposes Stargate control through an interface peripheral. Common interface types include:
+## Interface peripherals
+
+Stargate Journey provides three interface peripheral types:
 
 - `basic_interface`
 - `crystal_interface`
 - `advanced_crystal_interface`
 
-The Stargate peripheral inherits the interface's energy methods.
+A computer must be directly adjacent to the interface or connected with an activated wired modem. Wireless modems are not supported for connecting the interface. citeturn7view0
 
-## Stargate methods
+## Common interface methods
 
-Verified on `StargatePeripheral`:
+Verified:
 
-- `getStargateGeneration()`
-- `getStargateType()`
-- `isStargateConnected()`
-- `isStargateDialingOut()`
-- `isWormholeOpen()`
-- `getStargateEnergy()`
-- `getChevronsEngaged()`
-- `getOpenTime()`
-- `disconnectStargate()`
-
-## Interface energy methods
-
-Verified on `InterfacePeripheral`:
-
+- `addressToString(address)`
 - `getEnergy()`
 - `getEnergyCapacity()`
 - `getEnergyTarget()`
-- `setEnergyTarget(target)`
-- `addressToString(table)`
+- `setEnergyTarget(energyTarget)`
 
-## Generic Stargate methods
+The interface energy methods report Forge Energy (FE) stored in the interface. `getStargateEnergy()` is separate and reports Stargate energy. citeturn7view0
 
-Depending on Stargate type/interface:
+## Stargate methods
 
-- `getRecentFeedback()`
-- `sendStargateMessage(message)`
-- `getStargateVariant()`
-- `getPointOfOrigin()`
-- `getSymbols()`
+Verified:
+
+- `disconnectStargate()`
 - `engageStargate()`
+- `getChevronsEngaged()`
+- `getOpenTime()`
+- `getPointOfOrigin()`
+- `getRecentFeedback()`
+- `getStargateEnergy()`
+- `getStargateGeneration()`
+- `getStargateType()`
+- `getStargateVariant()`
+- `getSymbols()`
+- `isStargateConnected()`
+- `isStargateDialingOut()`
+- `isWormholeOpen()`
+- `sendStargateMessage(message)`
 - `engageSymbol(symbol, engageDirectly, canEngageStargate)`
 - `getDialedAddress()`
-- `setChevronConfiguration(table)`
-- `remapSymbol(originalSymbol, newSymbol)`
 - `getMappedSymbol(symbol)`
 - `hasDHD()`
-- `getNetworks()`
-- `addNetwork(network)`
-- `removeNetwork(network)`
-- `restrictNetwork(value)`
-- `isNetworkRestricted()`
-- `getConnectedAddress()`
-- `getLocalAddress()`
+- `remapSymbol(originalSymbol, newSymbol)`
+- `setChevronConfiguration(configuration)`
 
-## Rotation methods
+`getSymbols()` returns a **string resource location**, such as `sgjourney:terra`; it does not return an array of numeric glyphs. `engageSymbol()` accepts numeric symbol IDs. citeturn5view1turn6view1
 
-For rotating Stargates:
+### Dialing behavior
 
-- `getCurrentSymbol()`
-- `isCurrentSymbol(symbol)`
-- `encodeChevron()`
-- `getRotation()`
-- `getRotationDegrees()`
-- `rotateClockwise(symbol)`
-- `rotateAntiClockwise(symbol)`
-- `endRotation()`
+The official example encodes an address with:
 
-Milky Way Stargates additionally expose:
+`interface.engageSymbol(symbol)`
 
-- `openChevron()`
-- `closeChevron()`
-- `isChevronOpen()`
+and then waits for `getDialedAddress()` to contain the complete address before calling:
+
+`interface.engageStargate()`
+
+The Point of Origin must be included in the address. The example explicitly uses `canEngageStargate = false` when encoding so the final engagement is controlled separately. SGJ-CC-SGC follows that model. citeturn5view0turn6view1
+
+## Address methods
+
+- `getDialedAddress()` — Crystal/Advanced Crystal; returns the outgoing dialed address.
+- `getConnectedAddress()` — Advanced Crystal; returns the connected address.
+- `getLocalAddress()` — Advanced Crystal; returns the local 9-chevron address.
+- `addressToString(address)` — formats an address as `-26-6-14-31-11-29-`.
+
+An empty/non-applicable address is represented by an empty table. citeturn6view1turn5view2turn7view0
 
 ## Iris methods
 
-For iris-capable Stargates:
+Verified:
 
 - `getIris()`
 - `closeIris()`
@@ -92,34 +88,88 @@ For iris-capable Stargates:
 - `getIrisDurability()`
 - `getIrisMaxDurability()`
 
+`getIris()` returns the installed iris resource identifier or `nil`. Iris progress percentage is 0 when fully open/not installed and 100 when fully closed. The iris methods are not available for Tollan because Tollan cannot have an iris. citeturn6view0
+
+## Rotation
+
+For Classic, Universe, and Milky Way Stargates:
+
+- `getCurrentSymbol()`
+- `isCurrentSymbol(symbol)`
+- `getRotation()`
+- `getRotationDegrees()`
+- `rotateClockwise(symbol)`
+- `rotateAntiClockwise(symbol)`
+- `endRotation()`
+- `encodeChevron()`
+
+Milky Way additionally has:
+
+- `openChevron()`
+- `closeChevron()`
+- `isChevronOpen()`
+
+Pegasus additionally has:
+
+- `dynamicSymbols(enabled)`
+- `overrideSymbols(symbols)`
+- `overridePointOfOrigin(pointOfOrigin)`
+
+These are documented by the official Stargate Interface API. citeturn4view0
+
+## Networks and filtering
+
+Advanced Crystal exposes network/filter controls including:
+
+- `getNetworks()`
+- `addNetwork(network)`
+- `removeNetwork(network)`
+- `restrictNetwork(restrict)`
+- `isNetworkRestricted()`
+- `getFilterType()`
+- `setFilterType(type)`
+- `getPublicBlacklist()`
+- `getPublicWhitelist()`
+- `addToBlacklist(address)`
+- `removeFromBlacklist(address)`
+- `addToWhitelist(address)`
+- `removeFromWhitelist(address)`
+
+Filter types are 0 for none, 1 for whitelist, and -1 for blacklist. citeturn5view2
+
 ## Events
 
-Verified Stargate Journey event names include:
+Verified Stargate interface events:
 
+- `stargate_chevron_engaged`
 - `stargate_incoming_connection`
 - `stargate_incoming_wormhole`
 - `stargate_outgoing_wormhole`
 - `stargate_disconnected`
-- `stargate_rotation_started`
-- `stargate_rotation_stopped`
-- `stargate_chevron_engaged`
+- `stargate_reset`
+- `stargate_deconstructing_entity`
+- `stargate_reconstructing_entity`
+- `stargate_message_received`
 
-Interface events prepend the computer's peripheral attachment name to the event payload. The SGC program therefore strips the first payload value when processing these events.
+The first argument after the event name is the peripheral name. For an Advanced Crystal Interface, incoming-wormhole events include the connected address; outgoing-wormhole events include the dialed address; chevron events include the engaged count, chevron identifier, incoming/outgoing flag, and symbol where supported. citeturn2view1
 
-## Important difference from JSG
+## Transceiver / GDO / IDC
 
-The old SGC-CC project depended on JSG's iris/GDO methods such as `sendIrisCode` and `getIrisState`. Stargate Journey's current CC implementation exposes direct iris controls and telemetry instead, but no equivalent GDO-code method was found in the verified API. SGJ-CC-SGC does not invent one.
+Stargate Journey **does support GDO-style identification codes**, but this is exposed through the separate `transceiver` peripheral rather than the Stargate interface.
 
-## Source verification
+Verified transceiver methods:
 
-Verified against Stargate Journey source files including:
+- `setFrequency(frequency)`
+- `setCurrentCode(idc)`
+- `sendTransmission()`
+- `checkConnectedShielding()`
+- `getCurrentCode()`
+- `getFrequency()`
 
-- `StargatePeripheral.java`
-- `InterfacePeripheral.java`
-- `CCTweakedCompatibility.java`
-- `StargateMethods.java`
-- `IrisMethods.java`
-- `RotationMethods.java`
-- `MilkyWayStargateMethods.java`
-- `GenericStargateFunctions.java`
-- `StargateConnection.java`
+The transceiver raises `transceiver_transmission_received`, containing the frequency, received IDC, and whether the received code matches the transceiver's configured IDC. This is the correct SGJ mechanism for IDC/GDO authentication. citeturn3view0
+
+## JSG compatibility warning
+
+Do **not** use JSG-only calls such as `sendIrisCode()` or `getIrisState()`. SGJourney has its own direct iris API and a separate Transceiver/IDC system.
+
+SGJ-CC-SGC is intended to use only the documented Stargate Journey ComputerCraft API.
