@@ -173,6 +173,9 @@ local function log_event(message)
         table.remove(state.events, 1)
     end
     state.last_event = tostring(message)
+    -- Persist the event log as events occur so a crash/reboot does not erase
+    -- the operational history. This mirrors the original SGC behavior.
+    save_table(CONFIG.event_file, state.events)
 end
 
 local function load_data()
@@ -713,7 +716,12 @@ local function add_address()
 
     table.insert(state.addresses, { name = name, symbols = normalized })
     state.selected = #state.addresses
-    save_data()
+    if not save_data() then
+        table.remove(state.addresses, #state.addresses)
+        state.selected = math.max(1, math.min(state.selected, #state.addresses))
+        log_event("ADDRESS ADD FAILED: unable to save address data")
+        return
+    end
     log_event("ADDRESS ADDED: " .. name)
 end
 
@@ -754,7 +762,10 @@ local function edit_address(index)
         entry.symbols = normalized
     end
 
-    save_data()
+    if not save_data() then
+        log_event("ADDRESS EDIT FAILED: unable to save address data")
+        return
+    end
     log_event("ADDRESS EDITED: " .. entry.name)
 end
 
@@ -763,7 +774,12 @@ local function remove_address(index)
     if not entry then return end
     table.remove(state.addresses, index)
     state.selected = math.max(1, math.min(state.selected, #state.addresses))
-    save_data()
+    if not save_data() then
+        table.insert(state.addresses, index, entry)
+        state.selected = math.max(1, math.min(state.selected, #state.addresses))
+        log_event("ADDRESS REMOVE FAILED: unable to save address data")
+        return
+    end
     log_event("ADDRESS REMOVED: " .. tostring(entry.name))
 end
 
