@@ -210,7 +210,8 @@ local function discover_peripheral()
     for _, ptype in ipairs(preferred) do
         local p = peripheral.find(ptype)
         if p and p.getStargateType then
-            local ok, resolved_name = pcall(peripheral.getName, p)\n            local name = ok and resolved_name or ptype
+            local ok, resolved_name = pcall(peripheral.getName, p)
+            local name = ok and resolved_name or ptype
             return p, name, ptype
         end
     end
@@ -565,22 +566,22 @@ local function validate_address(symbols)
 
     local gate_type = state.gate_type
     local max_symbol = 38
-    local unlimited_symbols = false
 
     if gate_type == "sgjourney:universe_stargate" then
         max_symbol = 35
     elseif gate_type == "sgjourney:tollan_stargate"
         or gate_type == "sgjourney:pegasus_stargate" then
-        -- SGJourney documents these gates as able to directly dial any symbol.
-        unlimited_symbols = true
+        -- SGJourney's current implementations allocate 48 symbols (0-47)
+        -- for Tollan and Pegasus.
+        max_symbol = 47
     end
 
     local seen = {}
     for i, symbol in ipairs(symbols) do
         local n = tonumber(symbol)
         if n == nil or n < 0 or n % 1 ~= 0
-            or (not unlimited_symbols and n > max_symbol) then
-            local range = unlimited_symbols and "0+" or ("0-" .. tostring(max_symbol))
+            or n > max_symbol then
+            local range = "0-" .. tostring(max_symbol)
             return false, "Invalid symbol at position " .. tostring(i)
                 .. ": " .. tostring(symbol) .. " (supported range " .. range .. ")"
         end
