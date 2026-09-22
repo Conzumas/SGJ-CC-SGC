@@ -78,7 +78,7 @@ local function call_method(name, ...)
     if not state.peripheral then
         return false, nil, "No Stargate Journey interface is connected"
     end
-    return safe_call(state.peripheral[name], state.peripheral, ...)
+    return safe_call(state.peripheral[name], ...)
 end
 
 local function trim(s)
@@ -263,7 +263,7 @@ end
 
 local function ensure_peripheral()
     if state.peripheral then
-        local ok = pcall(state.peripheral.getStargateType, state.peripheral)
+        local ok = pcall(state.peripheral.getStargateType)
         if ok then return true end
         state.peripheral = nil
     end
