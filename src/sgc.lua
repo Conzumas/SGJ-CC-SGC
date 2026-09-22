@@ -85,6 +85,7 @@ local state = {
     selected = 1,
     events = {},
     last_event = "System initialized",
+    event_persistence_ok = true,
 }
 
 local function now()
@@ -184,7 +185,9 @@ local function log_event(message)
     state.last_event = tostring(message)
     -- Persist the event log as events occur so a crash/reboot does not erase
     -- the operational history. This mirrors the original SGC behavior.
-    save_table(CONFIG.event_file, state.events)
+    local saved = save_table(CONFIG.event_file, state.events)
+    state.event_persistence_ok = saved == true
+    return saved
 end
 
 local function load_data()
@@ -890,6 +893,8 @@ local function draw_main()
     term.setCursorPos(2, 15)
     term.write("TRANSCEIVER: " .. (state.transceiver and "ONLINE" or "OFFLINE")
         .. " FREQ=" .. tostring(state.transceiver_frequency or "N/A"))
+    term.setCursorPos(2, 16)
+    term.write("EVENT LOG:  " .. (state.event_persistence_ok and "SAVED" or "SAVE FAILED"))
 
     local row = 18
     if state.incoming then
