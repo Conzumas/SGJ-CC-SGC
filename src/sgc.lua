@@ -193,8 +193,9 @@ local function load_data()
 end
 
 local function save_data()
-    save_table(CONFIG.data_file, { addresses = state.addresses })
-    save_table(CONFIG.event_file, state.events)
+    local data_ok = save_table(CONFIG.data_file, { addresses = state.addresses })
+    local events_ok = save_table(CONFIG.event_file, state.events)
+    return data_ok and events_ok
 end
 
 local function discover_peripheral()
