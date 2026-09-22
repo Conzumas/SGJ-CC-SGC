@@ -838,6 +838,7 @@ local function handle_event(event, ...)
 
     if event == "stargate_incoming_connection" then
         state.incoming = true
+        state.iris_authorized = false
         state.alert = "INCOMING STARGATE CONNECTION"
         log_event("INCOMING CONNECTION DETECTED")
 
@@ -863,12 +864,6 @@ local function handle_event(event, ...)
             state.dialed_address = copy_address(args[1])
         end
         log_event("OUTGOING WORMHOLE")
-
-    elseif event == "stargate_reset" then
-        state.incoming = false
-        state.alert = nil
-        state.incoming_address = nil
-        log_event("STARGATE RESET")
 
     elseif event == "stargate_message_received" then
         log_event("STARGATE MESSAGE RECEIVED: " .. tostring(args[1] or ""))
