@@ -17,6 +17,11 @@ local CONFIG = {
     -- Set true only if you want the program to automatically open the iris
     -- after an incoming connection ends.
     reopen_after_disconnect = false,
+
+    -- SGJourney Transceiver / GDO settings.
+    -- Leave idc_code empty to keep incoming iris authorization disabled.
+    transceiver_frequency = 0,
+    idc_code = "",
 }
 
 local state = {
@@ -46,6 +51,15 @@ local state = {
     iris_progress_pct = nil,
     iris_durability = nil,
     iris_max_durability = nil,
+    iris_authorized = false,
+
+    connected_address = nil,
+
+    transceiver = nil,
+    transceiver_name = nil,
+    transceiver_frequency = nil,
+    transceiver_code = nil,
+    remote_iris_pct = nil,
 
     incoming = false,
     incoming_address = nil,
@@ -191,6 +205,66 @@ local function discover_peripheral()
     return nil, nil
 end
 
+local function discover_transceiver()
+    for _, name in ipairs(peripheral.getNames()) do
+        local p = peripheral.wrap(name)
+        if p and p.setFrequency and p.setCurrentCode and p.sendTransmission then
+            return p, name
+        end
+    end
+    return nil, nil
+end
+
+local function ensure_transceiver()
+    if state.transceiver then
+        local ok = pcall(state.transceiver.getFrequency)
+        if ok then return true end
+        state.transceiver = nil
+        state.transceiver_name = nil
+    end
+
+    local p, name = discover_transceiver()
+    if not p then
+        state.transceiver = nil
+        state.transceiver_name = nil
+        return false
+    end
+
+    state.transceiver = p
+    state.transceiver_name = name
+
+    if type(CONFIG.transceiver_frequency) == "number"
+        and CONFIG.transceiver_frequency >= 0
+        and CONFIG.transceiver_frequency <= 2147483647
+        and p.setFrequency then
+        pcall(p.setFrequency, CONFIG.transceiver_frequency)
+    end
+
+    if type(CONFIG.idc_code) == "string" and CONFIG.idc_code ~= "" and p.setCurrentCode then
+        pcall(p.setCurrentCode, CONFIG.idc_code)
+    end
+
+    log_event("SGJ transceiver connected: " .. tostring(name))
+    return true
+end
+
+local function refresh_transceiver()
+    if not state.transceiver then return end
+
+    local ok, value = safe_call(state.transceiver.getFrequency)
+    if ok then state.transceiver_frequency = tonumber(value) end
+
+    ok, value = safe_call(state.transceiver.getCurrentCode)
+    if ok then state.transceiver_code = tostring(value or "") end
+
+    ok, value = safe_call(state.transceiver.checkConnectedShielding)
+    if ok then
+        state.remote_iris_pct = value
+    else
+        state.remote_iris_pct = nil
+    end
+end
+
 local function refresh_gate()
     if not state.peripheral then return end
 
@@ -234,6 +308,13 @@ local function refresh_gate()
     ok, value = call_method("getLocalAddress")
     if ok and type(value) == "table" then
         state.local_address = copy_address(value)
+    end
+
+    ok, value = call_method("getConnectedAddress")
+    if ok and type(value) == "table" then
+        state.connected_address = copy_address(value)
+    elseif ok then
+        state.connected_address = nil
     end
 
     ok, value = call_method("getEnergy")
@@ -290,10 +371,12 @@ local function operation_result(ok, a, b)
         return false, tostring(b or a or "ComputerCraft call failed")
     end
 
-    -- Crystal interfaces return numeric feedback codes. Negative codes are
-    -- failures in Stargate Journey's Feedback system; positive/zero values are
-    -- feedback states. Treat the call itself as successful and let the UI show
-    -- the feedback unless it is clearly negative.
+    -- SGJourney uses booleans for iris actions and numeric feedback codes for
+    -- Stargate operations. Never treat a false boolean as success.
+    if a == false then
+        return false, tostring(b or "SGJourney rejected the operation")
+    end
+
     if type(a) == "number" and a < 0 then
         return false, tostring(b or ("SGJ feedback " .. a))
     end
@@ -340,6 +423,10 @@ local function dial_address(address)
         log_event("DIAL REJECTED: empty address")
         return false
     end
+    if #address < 7 or #address > 9 then
+        log_event("DIAL REJECTED: address must contain 7-9 symbols")
+        return false
+    end
     if not ensure_peripheral() then
         log_event("DIAL REJECTED: no Stargate interface")
         return false
@@ -352,8 +439,30 @@ local function dial_address(address)
     log_event("DIAL START: " .. address_string(address))
 
     refresh_gate()
+
+    -- Do not append to an unrelated active connection. A partial address may
+    -- only be resumed when the gate is connected by our outgoing dial attempt.
     local already = 0
-    if type(state.dialed_address) == "table" then already = #state.dialed_address end
+    if type(state.dialed_address) == "table" then
+        already = #state.dialed_address
+        if already > 0 and not state.dialing_out then
+            state.dialing = false
+            log_event("DIAL REJECTED: gate already has an incoming/active address")
+            return false
+        end
+        if already > #address then
+            state.dialing = false
+            log_event("DIAL REJECTED: existing dialed address is longer than target")
+            return false
+        end
+        for i = 1, already do
+            if tonumber(state.dialed_address[i]) ~= tonumber(address[i]) then
+                state.dialing = false
+                log_event("DIAL REJECTED: existing encoded address does not match target")
+                return false
+            end
+        end
+    end
     local start = math.max(1, already + 1)
 
     for i = start, #address do
@@ -378,8 +487,8 @@ local function dial_address(address)
 
         -- SGJ does not require a fixed delay: wait until the encoded address
         -- contains this symbol. This also works across rotating gate types.
-        local deadline = os.clock() + 20
-        while os.clock() < deadline do
+        local deadline = os.epoch("utc") + 20000
+        while os.epoch("utc") < deadline do
             refresh_gate()
             local count = type(state.dialed_address) == "table" and #state.dialed_address or 0
             if count >= i then break end
@@ -494,6 +603,26 @@ local function remove_address(index)
     log_event("ADDRESS REMOVED: " .. tostring(entry.name))
 end
 
+local function send_idc()
+    if not ensure_transceiver() then
+        log_event("IDC SEND FAILED: no SGJourney transceiver")
+        return false
+    end
+    if type(CONFIG.idc_code) ~= "string" or CONFIG.idc_code == "" then
+        log_event("IDC SEND FAILED: IDC code is not configured")
+        return false
+    end
+
+    local ok, result = safe_call(state.transceiver.sendTransmission)
+    if not ok or result == false then
+        log_event("IDC SEND FAILED: " .. tostring(result or "transceiver rejected transmission"))
+        return false
+    end
+
+    log_event("IDC TRANSMISSION SENT")
+    return true
+end
+
 local function dial_selected()
     local entry = state.addresses[state.selected]
     if not entry then
@@ -553,12 +682,14 @@ local function draw_main()
     term.setCursorPos(2, 13)
     term.write("LOCAL:     " .. address_string(state.local_address))
 
-    if state.dialed_address then
-        term.setCursorPos(2, 13)
-        term.write("DIALED:    " .. address_string(state.dialed_address))
-    end
+    term.setCursorPos(2, 14)
+    term.write("CONNECTED: " .. address_string(state.connected_address or state.dialed_address))
 
-    local row = 16
+    term.setCursorPos(2, 15)
+    term.write("TRANSCEIVER: " .. (state.transceiver and "ONLINE" or "OFFLINE")
+        .. " FREQ=" .. tostring(state.transceiver_frequency or "N/A"))
+
+    local row = 18
     if state.incoming then
         term.setCursorPos(2, row)
         term.write("!!! INCOMING CONNECTION !!!")
@@ -650,7 +781,7 @@ local function draw_iris()
     term.setCursorPos(2, h - 4)
     term.write("O OPEN IRIS   C CLOSE IRIS   S STOP IRIS")
     term.setCursorPos(2, h - 3)
-    term.write("B BACK        AUTO-LOCK INCOMING CONNECTIONS")
+    term.write("B BACK        T SEND IDC       AUTO-LOCK INCOMING")
 end
 
 local function iris_menu()
@@ -666,6 +797,8 @@ local function iris_menu()
             elseif key == keys.s then
                 iris_action("stopIris")
                 log_event("IRIS STOP REQUESTED")
+            elseif key == keys.t then
+                send_idc()
             elseif key == keys.b then
                 return
             end
@@ -699,8 +832,8 @@ end
 local function handle_event(event, ...)
     local args = { ... }
 
-    -- Stargate Journey queues the peripheral attachment name as the first
-    -- event argument. Strip it for interface-generated events.
+    -- Stargate Journey places the peripheral name immediately after the event.
+    -- The remaining values are the documented event payload.
     local attachment = table.remove(args, 1)
 
     if event == "stargate_incoming_connection" then
@@ -741,21 +874,76 @@ local function handle_event(event, ...)
         log_event("STARGATE MESSAGE RECEIVED: " .. tostring(args[1] or ""))
 
     elseif event == "stargate_chevron_engaged" then
-        log_event("CHEVRON ENGAGED: " .. table.concat(args, ", "))
+        local fields = {}
+        for i, value in ipairs(args) do fields[i] = tostring(value) end
+        log_event("CHEVRON ENGAGED: " .. table.concat(fields, ", "))
 
-    elseif event == "stargate_rotation_started" then
-        log_event("RING ROTATION STARTED: " .. tostring(args[1]))
+    elseif event == "stargate_deconstructing_entity" then
+        log_event("ENTITY ENTERED WORMHOLE: type=" .. tostring(args[1])
+            .. " name=" .. tostring(args[2]) .. " uuid=" .. tostring(args[3])
+            .. " wrong_end=" .. tostring(args[4]))
 
-    elseif event == "stargate_rotation_stopped" then
-        log_event("RING ROTATION STOPPED")
+    elseif event == "stargate_reconstructing_entity" then
+        log_event("ENTITY EXITED WORMHOLE: type=" .. tostring(args[1])
+            .. " name=" .. tostring(args[2]) .. " uuid=" .. tostring(args[3]))
 
     elseif event == "stargate_disconnected" then
         state.incoming = false
+        state.iris_authorized = false
         state.alert = nil
-        log_event("STARGATE DISCONNECTED")
+        state.incoming_address = nil
+        log_event("STARGATE DISCONNECTED: feedback=" .. tostring(args[1])
+            .. " message=" .. tostring(args[2] or ""))
 
         if CONFIG.reopen_after_disconnect then
             open_iris("automatic disconnect restoration")
+        end
+
+    elseif event == "stargate_reset" then
+        state.incoming = false
+        state.iris_authorized = false
+        state.alert = nil
+        state.incoming_address = nil
+        log_event("STARGATE RESET: feedback=" .. tostring(args[1])
+            .. " message=" .. tostring(args[2] or ""))
+
+    elseif event == "transceiver_transmission_received" then
+        local frequency = tonumber(args[1])
+        local received_idc = tostring(args[2] or "")
+        local configured_match = args[3] == true
+
+        if state.transceiver_name and attachment ~= state.transceiver_name then
+            return
+        end
+
+        log_event("IDC RECEIVED: frequency=" .. tostring(frequency)
+            .. " match=" .. tostring(configured_match))
+
+        if not state.incoming then
+            log_event("IDC REJECTED: no incoming Stargate connection")
+            return
+        end
+
+        if type(CONFIG.idc_code) ~= "string" or CONFIG.idc_code == "" then
+            state.alert = "!!! IDC CODE NOT CONFIGURED !!!"
+            log_event("IDC REJECTED: local IDC code is not configured")
+            return
+        end
+
+        if frequency ~= tonumber(CONFIG.transceiver_frequency)
+            or received_idc ~= CONFIG.idc_code then
+            log_event("IDC REJECTED: invalid frequency or code")
+            return
+        end
+
+        state.iris_authorized = true
+        local opened = open_iris("IDC authenticated")
+        if opened then
+            state.alert = nil
+            log_event("IDC AUTHENTICATED: IRIS OPEN AUTHORIZED")
+        else
+            state.alert = "!!! IRIS OPEN FAILED !!!"
+            log_event("IDC AUTHENTICATED BUT IRIS OPEN FAILED")
         end
     end
 end
@@ -765,15 +953,17 @@ local function security_loop()
         local event, a, b, c, d, e = os.pullEvent()
         if event == "peripheral" or event == "peripheral_detach" then
             ensure_peripheral()
+            ensure_transceiver()
         elseif event == "stargate_incoming_connection"
             or event == "stargate_incoming_wormhole"
             or event == "stargate_outgoing_wormhole"
             or event == "stargate_disconnected"
             or event == "stargate_chevron_engaged"
-            or event == "stargate_rotation_started"
-            or event == "stargate_rotation_stopped"
+            or event == "stargate_deconstructing_entity"
+            or event == "stargate_reconstructing_entity"
             or event == "stargate_reset"
-            or event == "stargate_message_received" then
+            or event == "stargate_message_received"
+            or event == "transceiver_transmission_received" then
             handle_event(event, a, b, c, d, e)
         end
     end
@@ -782,11 +972,15 @@ end
 local function refresh_loop()
     while state.running do
         ensure_peripheral()
+        ensure_transceiver()
         refresh_gate()
+        refresh_transceiver()
 
         if state.incoming and CONFIG.fail_closed then
             local pct = tonumber(state.iris_progress_pct)
-            if state.iris and (not pct or pct < 100) then
+            if state.iris == nil then
+                state.alert = "!!! NO IRIS INSTALLED / UNSAFE INCOMING !!!"
+            elseif not pct or pct < 100 then
                 force_close_iris("incoming connection safety loop")
             end
         end
@@ -822,11 +1016,21 @@ local function startup()
     term.setCursorBlink(false)
     load_data()
 
-    if ensure_peripheral() then
+    local gate_ok = ensure_peripheral()
+    local transceiver_ok = ensure_transceiver()
+
+    if gate_ok then
         refresh_gate()
         log_event("SGJ SYSTEM ONLINE: " .. tostring(state.gate_type))
     else
         log_event("NO STARGATE JOURNEY INTERFACE FOUND")
+    end
+
+    if transceiver_ok then
+        refresh_transceiver()
+        log_event("TRANSCEIVER READY: frequency=" .. tostring(state.transceiver_frequency or "unknown"))
+    else
+        log_event("NO SGJ TRANSCEIVER FOUND")
     end
 end
 
