@@ -14,10 +14,8 @@ local function find_interface()
 end
 
 local function get_symbols(gate)
-    local ok, symbols = pcall(gate.getSymbols)
-    if not ok then
-        return nil
-    end
+    local ok, symbols = pcall(gate.getSymbols, gate)
+    if not ok then return nil end
     return symbols
 end
 
@@ -65,34 +63,18 @@ local function draw(monitor, symbols, page)
 end
 
 local gate = find_interface()
-if not gate then
-    print("No Stargate Journey interface found.")
-    return
-end
-
+if not gate then print("No Stargate Journey interface found."); return end
 local symbols = get_symbols(gate)
-if type(symbols) ~= "table" then
-    print("This interface does not expose getSymbols().")
-    return
-end
-
+if type(symbols) ~= "table" then print("This interface does not expose getSymbols()."); return end
 local monitor = peripheral.find("monitor")
-if not monitor then
-    print("No monitor found.")
-    return
-end
+if not monitor then print("No monitor found."); return end
 
 local page = 1
 while true do
     local pages = draw(monitor, symbols, page)
     local _, key = os.pullEvent("key")
-    if key == keys.left then
-        page = math.max(1, page - 1)
-    elseif key == keys.right then
-        page = math.min(pages, page + 1)
-    elseif key == keys.b or key == keys.q then
-        break
-    end
+    if key == keys.left then page = math.max(1, page - 1)
+    elseif key == keys.right then page = math.min(pages, page + 1)
+    elseif key == keys.b or key == keys.q then break end
 end
-
 term.redirect(term.native())
