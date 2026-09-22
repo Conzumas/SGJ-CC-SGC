@@ -740,6 +740,11 @@ local function edit_address(index)
     local entry = state.addresses[index]
     if not entry then return end
 
+    -- Keep a copy so a failed disk write cannot leave the in-memory address
+    -- book different from the last successfully persisted version.
+    local original_name = entry.name
+    local original_symbols = copy_address(entry.symbols)
+
     term.clear()
     term.setCursorPos(2, 2)
     term.write("EDIT ADDRESS")
@@ -756,6 +761,8 @@ local function edit_address(index)
         for token in string.gmatch(raw, "%S+") do
             local n = tonumber(token)
             if not n then
+                entry.name = original_name
+                entry.symbols = original_symbols
                 term.setCursorPos(2, 7)
                 term.write("Invalid symbol: " .. token)
                 sleep(2)
@@ -765,6 +772,8 @@ local function edit_address(index)
         end
         local valid, normalized = validate_address(symbols)
         if not valid then
+            entry.name = original_name
+            entry.symbols = original_symbols
             term.setCursorPos(2, 7)
             term.write(normalized)
             sleep(2)
@@ -774,6 +783,8 @@ local function edit_address(index)
     end
 
     if not save_data() then
+        entry.name = original_name
+        entry.symbols = original_symbols
         log_event("ADDRESS EDIT FAILED: unable to save address data")
         return
     end
