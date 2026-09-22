@@ -210,18 +210,19 @@ local function discover_peripheral()
     for _, ptype in ipairs(preferred) do
         local p = peripheral.find(ptype)
         if p and p.getStargateType then
-            return p, ptype
+            local name = pcall(peripheral.getName, p) and peripheral.getName(p) or ptype
+            return p, name, ptype
         end
     end
 
     for _, name in ipairs(peripheral.getNames()) do
         local p = peripheral.wrap(name)
         if p and p.getStargateType then
-            return p, name
+            return p, name, peripheral.getType(name)
         end
     end
 
-    return nil, nil
+    return nil, nil, nil
 end
 
 local function discover_transceiver()
@@ -372,7 +373,7 @@ local function ensure_peripheral()
         state.peripheral = nil
     end
 
-    local p, name = discover_peripheral()
+    local p, name, ptype = discover_peripheral()
     if not p then
         state.peripheral = nil
         state.peripheral_name = nil
@@ -382,7 +383,7 @@ local function ensure_peripheral()
 
     state.peripheral = p
     state.peripheral_name = name
-    state.peripheral_type = name
+    state.peripheral_type = ptype or name
     log_event("SGJ interface connected: " .. tostring(name))
     refresh_gate()
     return true
@@ -503,9 +504,10 @@ local function dial_address(address)
         end
 
         local ok, feedback, message = call_method("engageSymbol", symbol, false, false)
-        if not ok then
+        local operation_ok, operation_detail = operation_result(ok, feedback, message)
+        if not operation_ok then
             state.dialing = false
-            log_event("DIAL FAILED at chevron " .. i .. ": " .. tostring(feedback))
+            log_event("DIAL FAILED at chevron " .. i .. ": " .. tostring(operation_detail))
             return false
         end
 
@@ -942,6 +944,20 @@ local function handle_event(event, ...)
     -- Stargate Journey places the peripheral name immediately after the event.
     -- The remaining values are the documented event payload.
     local attachment = table.remove(args, 1)
+
+    local stargate_event = event == "stargate_incoming_connection"
+        or event == "stargate_incoming_wormhole"
+        or event == "stargate_outgoing_wormhole"
+        or event == "stargate_disconnected"
+        or event == "stargate_chevron_engaged"
+        or event == "stargate_deconstructing_entity"
+        or event == "stargate_reconstructing_entity"
+        or event == "stargate_reset"
+        or event == "stargate_message_received"
+
+    if stargate_event and state.peripheral_name and attachment ~= state.peripheral_name then
+        return
+    end
 
     if event == "stargate_incoming_connection" then
         state.incoming = true
