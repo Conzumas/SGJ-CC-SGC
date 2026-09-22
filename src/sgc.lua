@@ -311,8 +311,11 @@ local function refresh_gate()
     end
 
     ok, value = call_method("getConnectedAddress")
-    if ok and type(value) == "table" then
+    if ok and type(value) == "table" and #value > 0 then
         state.connected_address = copy_address(value)
+        if state.incoming then
+            state.incoming_address = copy_address(value)
+        end
     elseif ok then
         state.connected_address = nil
     end
@@ -409,6 +412,11 @@ local function force_close_iris(reason)
 end
 
 local function open_iris(reason)
+    if state.incoming and CONFIG.fail_closed and not state.iris_authorized then
+        log_event("IRIS OPEN BLOCKED: incoming connection is not IDC-authorized")
+        return false, "incoming connection is not authorized"
+    end
+
     local ok, detail = iris_action("openIris")
     if ok then
         log_event("IRIS OPEN REQUESTED: " .. tostring(reason))
@@ -937,6 +945,7 @@ local function handle_event(event, ...)
             state.alert = nil
             log_event("IDC AUTHENTICATED: IRIS OPEN AUTHORIZED")
         else
+            state.iris_authorized = false
             state.alert = "!!! IRIS OPEN FAILED !!!"
             log_event("IDC AUTHENTICATED BUT IRIS OPEN FAILED")
         end
@@ -971,7 +980,7 @@ local function refresh_loop()
         refresh_gate()
         refresh_transceiver()
 
-        if state.incoming and CONFIG.fail_closed then
+        if state.incoming and CONFIG.fail_closed and not state.iris_authorized then
             local pct = tonumber(state.iris_progress_pct)
             if state.iris == nil then
                 state.alert = "!!! NO IRIS INSTALLED / UNSAFE INCOMING !!!"
